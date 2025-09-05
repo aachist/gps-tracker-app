@@ -1,0 +1,54 @@
+ооррbody, html {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    width: 100%;
+    font-family: sans-serif;
+    overflow: hidden; /* Убираем прокрутку */
+}
+
+#map {
+    height: 100%;
+    width: 100%;
+}
+
+.controls {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1000;
+    display: flex;
+    gap: 10px;
+    background: rgba(255, 255, 255, 0.8);
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+}
+
+button {
+    padding: 10px 15px;
+    border: none;
+    border-radius: 5px;
+    background-color: #007bff;
+    color: white;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+button:active {
+    background-color: #0056b3;
+}
+
+.info-panel {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    background: rgba(255, 255, 255, 0.8);
+    z-index: 1000;
+    padding: 10px;
+    box-sizing: border-box;
+    text-align: center;
+    font-size: 14px;
+}

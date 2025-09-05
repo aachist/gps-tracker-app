@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>GPS Трекер</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="map"></div>
+
+    <div class="controls">
+        <button id="toggleTrackBtn">Начать запись</button>
+        <button id="clearTrackBtn">Удалить трек</button>
+        <button id="saveTrackBtn">Сохранить в файл</button>
+    </div>
+
+    <div class="info-panel">
+        <div id="coords">Координаты: --</div>
+        <div id="distance">Расстояние: 0 км</div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="capacitor.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
