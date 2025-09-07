@@ -10,15 +10,20 @@
 <body>
     <div id="map"></div>
 
-    <div class="controls">
-        <button id="toggleTrackBtn">Начать запись</button>
-        <button id="clearTrackBtn">Удалить трек</button>
-        <button id="saveTrackBtn">Сохранить в файл</button>
-    </div>
-
-    <div class="info-panel">
-        <div id="coords">Координаты: --</div>
-        <div id="distance">Расстояние: 0 км</div>
+    <div class="controls-bottom">
+        <div class="info-panel">
+            <div id="coords">Координаты: --</div>
+            <div id="distance">Расстояние: 0 км</div>
+        </div>
+        
+        <div class="button-group">
+            <button id="centerMapBtn" title="Центрировать карту на текущем местоположении">
+                📍
+            </button>
+            <button id="toggleTrackBtn" title="Начать/остановить запись трека">●</button>
+            <button id="saveTrackBtn" title="Сохранить трек в файл">💾</button>
+            <button id="clearTrackBtn" title="Удалить трек">✕</button>
+        </div>
     </div>
 
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>

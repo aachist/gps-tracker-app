@@ -1,65 +1,155 @@
+// Ждем, пока загрузится DOM и инициализируются плагины Capacitor
 document.addEventListener('DOMContentLoaded', () => {
-    // === 1. Базовая инициализация карты (этот код работает везде) ===
-    // Сначала мы просто создаем карту, чтобы она была видна в любом окружении.
-    const map = L.map('map').setView([55.751244, 37.618423], 13); // Начальные координаты (Москва)
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-    }).addTo(map);
+    console.log('DOM loaded, initializing app...');
+    
+    // Проверка наличия необходимых элементов
+    const requiredElements = [
+        'toggleTrackBtn', 'clearTrackBtn', 'saveTrackBtn', 'centerMapBtn',
+        'coords', 'distance', 'map'
+    ];
+    
+    requiredElements.forEach(id => {
+        const element = document.getElementById(id);
+        if (!element) {
+            console.error(`Element with id '${id}' not found!`);
+        } else {
+            console.log(`Element '${id}' found`);
+        }
+    });
 
-    // === 2. Проверяем, запущено ли приложение на телефоне ===
-    // Эта проверка определяет, нужно ли включать GPS и другие нативные функции.
-    if (window.Capacitor && Capacitor.isNativePlatform()) {
-        // Если да, то запускаем всю логику мобильного приложения.
-        initializeNativeApp();
-    } else {
-        // Если нет (мы в обычном браузере), выводим сообщение в консоль.
-        console.log("Приложение запущено в браузере. Функции GPS-трекинга недоступны.");
-    }
+    // === Инициализация плагинов Capacitor ===
+    const { Geolocation } = Capacitor.Plugins;
+    const { Filesystem } = Capacitor.Plugins;
+    const { LocalNotifications } = Capacitor.Plugins;
+    const { App } = Capacitor.Plugins;
 
-    // === 3. Вся логика для телефона в одной функции ===
-    // Мы поместили весь наш предыдущий код сюда.
-    // Он будет выполнен только если проверка выше прошла успешно.
-    function initializeNativeApp() {
-        console.log("Приложение запущено на нативной платформе. Инициализация GPS...");
+    // === Переменные состояния приложения ===
+    let map;
+    let userMarker;
+    let trackPolyline;
+    let trackPoints = [];
+    let isTracking = false;
+    let watchId = null;
+    let totalDistance = 0;
+    let currentPosition = null;
 
-        // --- Инициализация плагинов Capacitor ---
-        const { Geolocation } = Capacitor.Plugins;
-        const { Filesystem } = Capacitor.Plugins;
-        const { LocalNotifications } = Capacitor.Plugins;
+    // === Элементы интерфейса ===
+    const toggleBtn = document.getElementById('toggleTrackBtn');
+    const clearBtn = document.getElementById('clearTrackBtn');
+    const saveBtn = document.getElementById('saveTrackBtn');
+    const centerBtn = document.getElementById('centerMapBtn');
+    const coordsDisplay = document.getElementById('coords');
+    const distanceDisplay = document.getElementById('distance');
 
-        // --- Переменные состояния приложения ---
-        let userMarker;
-        let trackPolyline = L.polyline([], { color: 'blue' }).addTo(map);
-        let trackPoints = [];
-        let isTracking = false;
-        let watchId = null;
-        let totalDistance = 0;
+    // === Основная функция инициализации ===
+    function initialize() {
+        // Инициализация карты Leaflet с координатами по умолчанию
+        map = L.map('map').setView([55.751244, 37.618423], 13);
+        
+        // Добавление слоя OpenStreetMap
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            maxZoom: 19
+        }).addTo(map);
 
-        // --- Элементы интерфейса ---
-        const toggleBtn = document.getElementById('toggleTrackBtn');
-        const clearBtn = document.getElementById('clearTrackBtn');
-        const saveBtn = document.getElementById('saveTrackBtn');
-        const coordsDisplay = document.getElementById('coords');
-        const distanceDisplay = document.getElementById('distance');
+        // Обработчик ошибок загрузки карты
+        map.on('loaderror', function(e) {
+            console.error('Map load error:', e);
+        });
 
-        // --- Загрузка и настройка при старте ---
+        // Создание маркера для текущего местоположения
+        userMarker = L.marker([0, 0], {
+            icon: L.divIcon({
+                className: 'user-marker',
+                html: '<div class="pulse"></div>',
+                iconSize: [20, 20],
+                iconAnchor: [10, 10]
+            })
+        }).addTo(map);
+        
+        // Инициализация линии трека
+        trackPolyline = L.polyline([], {
+            color: '#007bff',
+            weight: 4,
+            opacity: 0.7,
+            lineJoin: 'round'
+        }).addTo(map);
+
+        // Запрос геолокации при запуске
+        requestLocation();
+
+        // Загрузка трека из localStorage при запуске
         loadTrackFromStorage();
         updateUI();
 
-        // --- Обработчики событий кнопок ---
+        // Назначение обработчиков событий на кнопки
         toggleBtn.addEventListener('click', toggleTracking);
         clearBtn.addEventListener('click', clearTrack);
         saveBtn.addEventListener('click', saveTrackToFile);
+        centerBtn.addEventListener('click', centerMap);
+        
+        console.log('App initialized successfully');
+    }
 
-        // --- Функции геолокации ---
-        async function startTracking() {
-            const permissions = await Geolocation.requestPermissions();
+    // === Функции для работы с геолокацией ===
+    async function requestLocation() {
+        try {
+            const position = await Geolocation.getCurrentPosition({
+                enableHighAccuracy: true,
+                timeout: 10000
+            });
+            
+            const { latitude, longitude } = position.coords;
+            currentPosition = [latitude, longitude];
+            updateMap(latitude, longitude, false);
+        } catch (error) {
+            console.error('Ошибка получения местоположения:', error);
+        }
+    }
+
+    async function startTracking() {
+        try {
+            // Проверяем текущие разрешения
+            let permissions;
+            try {
+                permissions = await Geolocation.checkPermissions();
+                console.log('Текущие разрешения:', permissions);
+            } catch (error) {
+                console.error('Ошибка проверки разрешений:', error);
+                permissions = { location: 'prompt' };
+            }
+            
+            // Если разрешения не предоставлены, запрашиваем их
             if (permissions.location !== 'granted') {
-                alert('Для работы приложения необходимо разрешение на геолокацию.');
+                try {
+                    permissions = await Geolocation.requestPermissions();
+                    console.log('Разрешения после запроса:', permissions);
+                } catch (error) {
+                    console.error('Ошибка запроса разрешений:', error);
+                    alert('Не удалось запросить разрешение на геолокацию. Пожалуйста, предоставьте разрешение в настройках приложения.');
+                    try {
+                        await App.openAppSettings();
+                    } catch (e) {
+                        console.error('Не удалось открыть настройки:', e);
+                    }
+                    return;
+                }
+            }
+
+            if (permissions.location !== 'granted') {
+                alert('Для работы приложения необходимо разрешение на геолокацию. Пожалуйста, предоставьте разрешение в настройках приложения.');
+                try {
+                    await App.openAppSettings();
+                } catch (e) {
+                    console.error('Не удалось открыть настройки:', e);
+                }
                 return;
             }
 
             isTracking = true;
+            toggleBtn.classList.add('recording');
+            
+            // Запускаем отслеживание с интервалом
             watchId = await Geolocation.watchPosition({
                 enableHighAccuracy: true,
                 timeout: 10000,
@@ -72,90 +162,125 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 const { latitude, longitude } = position.coords;
                 const newPoint = [latitude, longitude];
+                currentPosition = [latitude, longitude];
+
+                // Добавляем точку в трек
                 trackPoints.push(newPoint);
 
+                // Обновляем расстояние, если это не первая точка
                 if (trackPoints.length > 1) {
                     const prevPoint = trackPoints[trackPoints.length - 2];
                     totalDistance += calculateDistance(prevPoint[0], prevPoint[1], newPoint[0], newPoint[1]);
                 }
                 
-                updateMap(latitude, longitude);
+                // Обновляем карту и интерфейс
+                updateMap(latitude, longitude, false);
                 saveTrackToStorage();
                 updateUI();
             });
 
+            // Показываем уведомление о фоновой работе
             await showTrackingNotification();
-        }
-
-        async function stopTracking() {
+        } catch (error) {
+            console.error('Ошибка запуска отслеживания:', error);
+            alert('Не удалось запустить отслеживание геолокации.');
             isTracking = false;
-            if (watchId) {
+            toggleBtn.classList.remove('recording');
+        }
+    }
+
+    async function stopTracking() {
+        isTracking = false;
+        toggleBtn.classList.remove('recording');
+        if (watchId) {
+            try {
                 await Geolocation.clearWatch({ id: watchId });
-                watchId = null;
+            } catch (error) {
+                console.error('Ошибка остановки отслеживания:', error);
             }
-            updateUI();
+            watchId = null;
+        }
+        updateUI();
+        // Скрываем уведомление
+        try {
             await LocalNotifications.cancel({ notifications: [{ id: 1 }] });
+        } catch (error) {
+            console.error('Ошибка отмены уведомления:', error);
         }
+    }
 
-        function toggleTracking() {
-            if (isTracking) {
-                stopTracking();
-            } else {
-                startTracking();
-            }
+    function toggleTracking() {
+        if (isTracking) {
+            stopTracking();
+        } else {
+            startTracking();
         }
+    }
 
-        // --- Функции карты и интерфейса ---
-        function updateMap(lat, lng) {
-            if (!userMarker) {
-                userMarker = L.marker([lat, lng]).addTo(map);
-            } else {
-                userMarker.setLatLng([lat, lng]);
-            }
+    // Функция центрирования карты на текущем местоположении
+    function centerMap() {
+        if (currentPosition) {
+            map.setView(currentPosition, 16);
+        } else {
+            requestLocation();
+        }
+    }
+
+    // === Функции для работы с картой и интерфейсом ===
+    function updateMap(lat, lng, center = false) {
+        // Обновляем маркер пользователя
+        userMarker.setLatLng([lat, lng]);
+        
+        // Обновляем линию трека
+        trackPolyline.setLatLngs(trackPoints);
+        
+        // Центрируем карту только если явно указано
+        if (center) {
             map.setView([lat, lng], 16);
-            trackPolyline.setLatLngs(trackPoints);
         }
+    }
+    
+    function updateUI() {
+        // Обновляем текст на кнопке
+        toggleBtn.textContent = isTracking ? '⏹' : '●';
         
-        function updateUI() {
-            toggleBtn.textContent = isTracking ? 'Остановить запись' : 'Начать запись';
-            distanceDisplay.textContent = `Расстояние: ${totalDistance.toFixed(2)} км`;
+        // Обновляем информацию о расстоянии
+        distanceDisplay.textContent = `Расстояние: ${totalDistance.toFixed(2)} км`;
 
-            if (trackPoints.length > 0) {
-                const lastPoint = trackPoints[trackPoints.length - 1];
-                coordsDisplay.textContent = `Координаты: ${lastPoint[0].toFixed(5)}, ${lastPoint[1].toFixed(5)}`;
-            } else {
-                coordsDisplay.textContent = 'Координаты: --';
-            }
+        // Обновляем информацию о координатах
+        if (trackPoints.length > 0) {
+            const lastPoint = trackPoints[trackPoints.length - 1];
+            coordsDisplay.textContent = `Координаты: ${lastPoint[0].toFixed(5)}, ${lastPoint[1].toFixed(5)}`;
+        } else {
+            coordsDisplay.textContent = 'Координаты: --';
         }
-        
-        // --- Функции работы с треком ---
-        function clearTrack() {
-            if (isTracking) {
-                stopTracking();
-            }
-            trackPoints = [];
-            totalDistance = 0;
-            trackPolyline.setLatLngs([]);
-            if (userMarker) {
-                map.removeLayer(userMarker);
-                userMarker = null;
-            }
-            localStorage.removeItem('gpsTrack');
-            updateUI();
-            alert('Трек очищен.');
+    }
+    
+    // === Функции для работы с треком ===
+    function clearTrack() {
+        if (isTracking) {
+            stopTracking();
         }
+        trackPoints = [];
+        totalDistance = 0;
+        trackPolyline.setLatLngs([]);
+        localStorage.removeItem('gpsTrack');
+        updateUI();
+        alert('Трек очищен.');
+    }
 
-        function saveTrackToStorage() {
-            const trackData = {
-                points: trackPoints,
-                distance: totalDistance
-            };
-            localStorage.setItem('gpsTrack', JSON.stringify(trackData));
-        }
+    function saveTrackToStorage() {
+        const trackData = {
+            points: trackPoints,
+            distance: totalDistance
+        };
+        localStorage.setItem('gpsTrack', JSON.stringify(trackData));
+    }
 
-        function loadTrackFromStorage() {
-            const savedTrack = localStorage.getItem('gpsTrack');
-            if (savedTrack) {
+    function loadTrackFromStorage() {
+        const savedTrack = localStorage.getItem('gpsTrack');
+        if (savedTrack) {
+            try {
                 const trackData = JSON.parse(savedTrack);
                 trackPoints = trackData.points || [];
                 totalDistance = trackData.distance || 0;
@@ -163,65 +288,76 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (trackPoints.length > 0) {
                     trackPolyline.setLatLngs(trackPoints);
                     const lastPoint = trackPoints[trackPoints.length - 1];
-                    updateMap(lastPoint[0], lastPoint[1]);
-                    map.fitBounds(trackPolyline.getBounds());
+                    updateMap(lastPoint[0], lastPoint[1], false);
                 }
+            } catch (error) {
+                console.error('Ошибка загрузки трека из хранилища:', error);
+                localStorage.removeItem('gpsTrack');
             }
         }
-        
-        // --- Функции сохранения файла ---
-        async function saveTrackToFile() {
-            if (trackPoints.length === 0) {
-                alert('Трек пуст. Нечего сохранять.');
-                return;
-            }
-
-            const gpxData = generateGPX();
-            const fileName = `track_${new Date().toISOString().replace(/:/g, '-')}.gpx`;
-
-            try {
-                await Filesystem.writeFile({
-                    path: fileName,
-                    data: gpxData,
-                    directory: 'DOCUMENTS',
-                    encoding: 'utf-8'
-                });
-                alert(`Трек сохранен в файл: ${fileName}\n(в папке "Документы" вашего телефона)`);
-            } catch (e) {
-                console.error('Ошибка сохранения файла', e);
-                alert('Не удалось сохранить файл.');
-            }
+    }
+    
+    // === Функции для сохранения файла ===
+    async function saveTrackToFile() {
+        if (trackPoints.length === 0) {
+            alert('Трек пуст. Нечего сохранять.');
+            return;
         }
-        
-        function generateGPX() {
-            let gpx = `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="MyGPSApp" xmlns="http://www.topografix.com/GPX/1/1">
-<trk>
-<name>GPS Track</name>
-<trkseg>`;
-            
-            trackPoints.forEach(point => {
-                gpx += `<trkpt lat="${point[0]}" lon="${point[1]}"><time>${new Date().toISOString()}</time></trkpt>`;
+
+        const gpxData = generateGPX();
+        const fileName = `track_${new Date().toISOString().replace(/:/g, '-')}.gpx`;
+
+        try {
+            // Сохраняем файл в папку Documents
+            await Filesystem.writeFile({
+                path: fileName,
+                data: gpxData,
+                directory: 'DOCUMENTS',
+                encoding: 'utf-8'
             });
+            alert(`Трек сохранен в файл: ${fileName}\n(в папке "Документы" вашего телефона)`);
+        } catch (e) {
+            console.error('Ошибка сохранения файла', e);
+            alert('Не удалось сохранить файл.');
+        }
+    }
+    
+    function generateGPX() {
+        let gpx = `<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="MyGPSApp" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>GPS Track</name>
+    <trkseg>`;
+        
+        trackPoints.forEach(point => {
+            gpx += `
+      <trkpt lat="${point[0]}" lon="${point[1]}">
+        <time>${new Date().toISOString()}</time>
+      </trkpt>`;
+        });
 
-            gpx += `</trkseg></trk>
+        gpx += `
+    </trkseg>
+  </trk>
 </gpx>`;
-            return gpx;
-        }
+        return gpx;
+    }
 
-        // --- Вспомогательные функции ---
-        function calculateDistance(lat1, lon1, lat2, lon2) {
-            const R = 6371; // Радиус Земли в км
-            const dLat = (lat2 - lat1) * Math.PI / 180;
-            const dLon = (lon2 - lon1) * Math.PI / 180;
-            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                    Math.sin(dLon / 2) * Math.sin(dLon / 2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            return R * c; // Расстояние в км
-        }
+    // === Вспомогательные функции ===
+    
+    function calculateDistance(lat1, lon1, lat2, lon2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        return R * c;
+    }
 
-        async function showTrackingNotification() {
+    async function showTrackingNotification() {
+        try {
             await LocalNotifications.schedule({
                 notifications: [
                     {
@@ -233,6 +369,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 ]
             });
+        } catch (error) {
+            console.error('Ошибка показа уведомления:', error);
         }
     }
+
+    // Запускаем инициализацию
+    initialize();
 });
